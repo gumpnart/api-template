@@ -25,30 +25,6 @@ export class UserService {
     return await this.prisma.user.findMany({ select });
   }
 
-  async login(payload: LoginUserDto): Promise<any> {
-    const _user = await this.prisma.user.findOne({
-      where: {email: payload.email}
-    });
-
-    const errors = { User: 'email or password wrong' };
-
-    if (!_user) {
-      throw new HttpException({errors}, 401);
-    }
-
-    const authenticated = await argon2.verify(_user.password, payload.password);
-
-    if (!authenticated) {
-      throw new HttpException({errors}, 401);
-    }
-
-    const token = await this.generateJWT(_user);
-    const {password, ...user} = _user;
-    return {
-      user: {token, ...user}
-    };
-  }
-
   async create(dto: CreateUserDto): Promise<UserRO> {
     const {username, email, password} = dto;
 

@@ -1,34 +1,47 @@
-import { Get, Post, Body, Put, Delete, Param, Controller, UsePipes } from '@nestjs/common';
+import {
+  Get,
+  Post,
+  Body,
+  Put,
+  Delete,
+  Param,
+  Controller,
+  UsePipes,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { UserService } from './user.service';
 import { UserRO } from './user.interface';
-import { CreateUserDto, UpdateUserDto, LoginUserDto } from './dto';
-import { User } from './user.decorator';
+import { CreateUserDto, UpdateUserDto } from './dto';
 import { ValidationPipe } from '../shared/pipes/validation.pipe';
 
-import {
-  ApiBearerAuth, ApiTags
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiBearerAuth()
 @ApiTags('users')
 @Controller()
 export class UserController {
-
   constructor(private readonly userService: UserService) {}
 
   @Get('user')
-  async findMe(@User('email') email: string): Promise<UserRO> {
-    return await this.userService.findByEmail(email);
+  @UseGuards(JwtAuthGuard)
+  async findMe(@Request() req): Promise<UserRO> {
+    return await this.userService.findByEmail(req.user.email);
   }
 
   @Put('user')
-  async update(@User('id') userId: number, @Body('user') userData: UpdateUserDto) {
-    return await this.userService.update(userId, userData);
+  @UseGuards(JwtAuthGuard)
+  async update(@Request() req, @Body('user') userData: UpdateUserDto) {
+    return await this.userService.update(req.user.userId, userData);
   }
 
   @UsePipes(new ValidationPipe())
   @Post('users')
-  async create(@Body('user') userData: CreateUserDto) {
+  @ApiBody({
+    type: CreateUserDto,
+  })
+  async create(@Body() userData: CreateUserDto) {
     return this.userService.create(userData);
   }
 
@@ -36,11 +49,5 @@ export class UserController {
   async delete(@Param() params) {
     console.log(params);
     return await this.userService.delete(params.slug);
-  }
-
-  @UsePipes(new ValidationPipe())
-  @Post('users/login')
-  async login(@Body('user') loginUserDto: LoginUserDto): Promise<UserRO> {
-    return await this.userService.login(loginUserDto);
   }
 }
