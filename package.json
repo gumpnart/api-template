@@ -1,7 +1,7 @@
 {
-  "name": "nestjs-realworld-example-app",
+  "name": "api-template",
   "version": "2.0.0",
-  "description": "[![Build Status](https://travis-ci.org/anishkny/node-express-realworld-example-app.svg?branch=master)](https://travis-ci.org/anishkny/node-express-realworld-example-app)",
+  "description": "",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -16,12 +16,8 @@
     "type": "git",
     "url": "git+https://github.com/lujakob/nestjs-realworld-example-app.git"
   },
-  "author": "lu.jakob@googlemail.com",
+  "author": "gumpnart@gmail.com",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/lujakob/nestjs-realworld-example-app/issues"
-  },
-  "homepage": "https://github.com/lujakob/nestjs-realworld-example-app#readme",
   "dependencies": {
     "@nestjs/common": "^7.0.5",
     "@nestjs/core": "^7.0.5",
@@ -37,11 +33,9 @@
     "crypto": "^1.0.1",
     "crypto-js": "^4.0.0",
     "jsonwebtoken": "^8.5.1",
-    "mysql": "^2.18.1",
     "passport-jwt": "^4.0.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^6.5.5",
-    "slug": "^1.1.0",
     "swagger-ui-express": "^4.1.4",
     "typescript": "^3.8.3"
   },
