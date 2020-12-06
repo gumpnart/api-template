@@ -1,201 +1,240 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, getRepository, DeleteResult } from 'typeorm';
-import { ArticleEntity } from './article.entity';
-import { Comment } from './comment.entity';
-import { UserEntity } from '../user/user.entity';
-import { FollowsEntity } from '../profile/follows.entity';
 import { CreateArticleDto } from './dto';
-
-import {ArticleRO, ArticlesRO, CommentsRO} from './article.interface';
+import { PrismaService } from '../shared/services/prisma.service';
 const slug = require('slug');
+import { ArticleWhereInput, Enumerable } from '@prisma/client';
+
+const articleAuthorSelect = {
+  email: true,
+  username: true,
+  bio: true,
+  image: true,
+  followedBy: { select: { id: true } }
+};
+
+const commentSelect = {
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  body: true,
+  author: { select: articleAuthorSelect }
+};
+
+const articleInclude = {
+  author: { select: articleAuthorSelect },
+  favoritedBy: { select: { id: true }},
+};
+
+// map dynamic value "following" (is the current user following this author)
+const mapAuthorFollowing = (userId, {followedBy, ...rest}) => ({
+  ...rest,
+  following: Array.isArray(followedBy) && followedBy.map(f => f.id).includes(userId),
+});
+
+// map dynamic values "following" and "favorited" (from favoritedBy)
+const mapDynamicValues = (userId, {favoritedBy, author, ...rest}) => ({
+  ...rest,
+  favorited: Array.isArray(favoritedBy) && favoritedBy.map(f => f.id).includes(userId),
+  author: mapAuthorFollowing(userId, author),
+});
 
 @Injectable()
 export class ArticleService {
-  constructor(
-    @InjectRepository(ArticleEntity)
-    private readonly articleRepository: Repository<ArticleEntity>,
-    @InjectRepository(Comment)
-    private readonly commentRepository: Repository<Comment>,
-    @InjectRepository(UserEntity)
-    private readonly userRepository: Repository<UserEntity>,
-    @InjectRepository(FollowsEntity)
-    private readonly followsRepository: Repository<FollowsEntity>
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
-  async findAll(query): Promise<ArticlesRO> {
+  async findAll(userId: number, query): Promise<any> {
+    const andQueries = this.buildFindAllQuery(query);
+    let articles = await this.prisma.article.findMany({
+      where: { AND: andQueries },
+      orderBy: { createdAt: 'desc' },
+      include: articleInclude,
+      ...('limit' in query ? {first: +query.limit} : {}),
+      ...('offset' in query ? {skip: +query.offset} : {}),
+    });
+    const articlesCount = await this.prisma.article.count({
+      where: { AND: andQueries },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    const qb = await getRepository(ArticleEntity)
-      .createQueryBuilder('article')
-      .leftJoinAndSelect('article.author', 'author');
+    articles = (articles as any).map((a) => mapDynamicValues(userId, a));
 
-    qb.where("1 = 1");
+    return { articles, articlesCount };
+  }
+
+
+  private buildFindAllQuery(query): Enumerable<ArticleWhereInput> {
+    const queries = [];
 
     if ('tag' in query) {
-      qb.andWhere("article.tagList LIKE :tag", { tag: `%${query.tag}%` });
+      queries.push({
+        tagList: {
+          contains: query.tag
+        }
+      });
     }
 
     if ('author' in query) {
-      const author = await this.userRepository.findOne({username: query.author});
-      qb.andWhere("article.authorId = :id", { id: author.id });
+      queries.push({
+        author: {
+          username: {
+            equals: query.author
+          }
+        }
+      });
     }
 
     if ('favorited' in query) {
-      const author = await this.userRepository.findOne({username: query.favorited});
-      const ids = author.favorites.map(el => el.id);
-      qb.andWhere("article.authorId IN (:ids)", { ids });
+      queries.push({
+        favoritedBy: {
+          some: {
+            username: {
+              equals: query.favorited
+            }
+          }
+        }
+      });
     }
 
-    qb.orderBy('article.created', 'DESC');
-
-    const articlesCount = await qb.getCount();
-
-    if ('limit' in query) {
-      qb.limit(query.limit);
-    }
-
-    if ('offset' in query) {
-      qb.offset(query.offset);
-    }
-
-    const articles = await qb.getMany();
-
-    return {articles, articlesCount};
+    return queries;
   }
 
-  async findFeed(userId: number, query): Promise<ArticlesRO> {
-    const _follows = await this.followsRepository.find( {followerId: userId});
+  async findFeed(userId: number, query): Promise<any> {
+    const where = {
+      author: {
+        followedBy: { some: { id: +userId } }
+      }
+    };
+    let articles = await this.prisma.article.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: articleInclude,
+      ...('limit' in query ? {first: +query.limit} : {}),
+      ...('offset' in query ? {skip: +query.offset} : {}),
+    });
+    const articlesCount = await this.prisma.article.count({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
 
-    if (!(Array.isArray(_follows) && _follows.length > 0)) {
-      return {articles: [], articlesCount: 0};
-    }
+    articles = (articles as any).map((a) => mapDynamicValues(userId, a));
 
-    const ids = _follows.map(el => el.followingId);
-
-    const qb = await getRepository(ArticleEntity)
-      .createQueryBuilder('article')
-      .where('article.authorId IN (:ids)', { ids });
-
-    qb.orderBy('article.created', 'DESC');
-
-    const articlesCount = await qb.getCount();
-
-    if ('limit' in query) {
-      qb.limit(query.limit);
-    }
-
-    if ('offset' in query) {
-      qb.offset(query.offset);
-    }
-
-    const articles = await qb.getMany();
-
-    return {articles, articlesCount};
+    return { articles, articlesCount };
   }
 
-  async findOne(where): Promise<ArticleRO> {
-    const article = await this.articleRepository.findOne(where);
-    return {article};
+  async findOne(userId: number, slug: string): Promise<any> {
+    let article: any = await this.prisma.article.findOne({
+      where: { slug },
+      include: articleInclude,
+    });
+
+    article = mapDynamicValues(userId, article);
+
+    return { article };
   }
 
-  async addComment(slug: string, commentData): Promise<ArticleRO> {
-    let article = await this.articleRepository.findOne({slug});
+  async addComment(userId: number, slug: string, {body}): Promise<any> {
+    const comment = await this.prisma.comment.create({
+      data: {
+        body,
+        article: {
+          connect: { slug }
+        },
+        author: {
+          connect: { id: userId }
+        }
+      },
+      select: commentSelect
+    });
 
-    const comment = new Comment();
-    comment.body = commentData.body;
-
-    article.comments.push(comment);
-
-    await this.commentRepository.save(comment);
-    article = await this.articleRepository.save(article);
-    return {article}
+    return { comment };
   }
 
-  async deleteComment(slug: string, id: string): Promise<ArticleRO> {
-    let article = await this.articleRepository.findOne({slug});
-
-    const comment = await this.commentRepository.findOne(id);
-    const deleteIndex = article.comments.findIndex(_comment => _comment.id === comment.id);
-
-    if (deleteIndex >= 0) {
-      const deleteComments = article.comments.splice(deleteIndex, 1);
-      await this.commentRepository.delete(deleteComments[0].id);
-      article =  await this.articleRepository.save(article);
-      return {article};
-    } else {
-      return {article};
-    }
-
+  async deleteComment(slug: string, id: string): Promise<any> {
+    // @Todo: no clue why API specs require a slug if the comment id is unique?!
+    await this.prisma.comment.delete({ where: { id: +id }});
   }
 
-  async favorite(id: number, slug: string): Promise<ArticleRO> {
-    let article = await this.articleRepository.findOne({slug});
-    const user = await this.userRepository.findOne(id);
+  async favorite(userId: number, slug: string): Promise<any> {
+    let article: any = await this.prisma.article.update(
+      {
+        where: { slug },
+        data: {
+          favoritedBy: {
+            connect: { id: userId }
+          }
+        },
+        include: articleInclude
+      }
+    );
 
-    const isNewFavorite = user.favorites.findIndex(_article => _article.id === article.id) < 0;
-    if (isNewFavorite) {
-      user.favorites.push(article);
-      article.favoriteCount++;
+    article = mapDynamicValues(userId, article);
 
-      await this.userRepository.save(user);
-      article = await this.articleRepository.save(article);
-    }
-
-    return {article};
+    return { article };
   }
 
-  async unFavorite(id: number, slug: string): Promise<ArticleRO> {
-    let article = await this.articleRepository.findOne({slug});
-    const user = await this.userRepository.findOne(id);
+  async unFavorite(userId: number, slug: string): Promise<any> {
+    let article: any = await this.prisma.article.update(
+      {
+        where: { slug },
+        data: {
+          favoritedBy: {
+            disconnect: { id: userId }
+          }
+        },
+        include: articleInclude
+      }
+    );
 
-    const deleteIndex = user.favorites.findIndex(_article => _article.id === article.id);
+    article = mapDynamicValues(userId, article);
 
-    if (deleteIndex >= 0) {
-
-      user.favorites.splice(deleteIndex, 1);
-      article.favoriteCount--;
-
-      await this.userRepository.save(user);
-      article = await this.articleRepository.save(article);
-    }
-
-    return {article};
+    return { article };
   }
 
-  async findComments(slug: string): Promise<CommentsRO> {
-    const article = await this.articleRepository.findOne({slug});
-    return {comments: article.comments};
+  async findComments(slug: string): Promise<any> {
+    const comments = await this.prisma.comment.findMany({
+      where: { article: { slug } },
+      orderBy: { createdAt: 'desc' },
+      select: commentSelect
+    });
+    return { comments };
   }
 
-  async create(userId: number, articleData: CreateArticleDto): Promise<ArticleEntity> {
+  async create(userId: number, payload: CreateArticleDto): Promise<any> {
+    const data = {
+      ...payload,
+      slug: this.slugify(payload.title),
+      tagList: payload.tagList.join(','),
+      author: {
+        connect: { id: userId }
+      }
+    };
+    let article: any = await this.prisma.article.create({
+      data,
+      include: articleInclude
+    });
 
-    let article = new ArticleEntity();
-    article.title = articleData.title;
-    article.description = articleData.description;
-    article.slug = this.slugify(articleData.title);
-    article.tagList = articleData.tagList || [];
-    article.comments = [];
+    article = mapDynamicValues(userId, article);
 
-    const newArticle = await this.articleRepository.save(article);
-
-    const author = await this.userRepository.findOne({ where: { id: userId }, relations: ['articles'] });
-    author.articles.push(article);
-
-    await this.userRepository.save(author);
-
-    return newArticle;
-
+    return { article };
   }
 
-  async update(slug: string, articleData: any): Promise<ArticleRO> {
-    let toUpdate = await this.articleRepository.findOne({ slug: slug});
-    let updated = Object.assign(toUpdate, articleData);
-    const article = await this.articleRepository.save(updated);
-    return {article};
+  async update(userId: number, slug: string, data: any): Promise<any> {
+    let article: any = await this.prisma.article.update({
+      where: { slug },
+      data: {
+        ...data,
+        updatedAt: new Date()
+      },
+      include: articleInclude,
+    });
+
+    article = mapDynamicValues(userId, article);
+
+    return { article };
   }
 
-  async delete(slug: string): Promise<DeleteResult> {
-    return await this.articleRepository.delete({ slug: slug});
+  async delete(slug: string): Promise<void> {
+    await this.prisma.article.delete({ where: { slug } });
   }
 
   slugify(title: string) {
