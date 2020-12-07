@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { CreateUserDto, UpdateUserDto } from './dto';
-const jwt = require('jsonwebtoken');
-import { SECRET } from '../config';
 import { UserRO } from './user.interface';
 import { HttpException } from '@nestjs/common/exceptions/http.exception';
 import { HttpStatus } from '@nestjs/common';
@@ -27,11 +25,11 @@ export class UserService {
     const { username, email, password } = dto;
 
     // check uniqueness of username/email
-    const userNotUnique = await this.prisma.user.findOne({
+    const userExist = await this.prisma.user.findOne({
       where: { email },
     });
 
-    if (userNotUnique) {
+    if (userExist) {
       const errors = { username: 'Username and email must be unique.' };
       throw new HttpException(
         { message: 'Input data validation failed', errors },
@@ -73,21 +71,5 @@ export class UserService {
   async findByEmail(email: string): Promise<any> {
     const user = await this.prisma.user.findOne({ where: { email }, select });
     return { user };
-  }
-
-  public generateJWT(user) {
-    let today = new Date();
-    let exp = new Date(today);
-    exp.setDate(today.getDate() + 60);
-
-    return jwt.sign(
-      {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        exp: exp.getTime() / 1000,
-      },
-      SECRET
-    );
   }
 }
