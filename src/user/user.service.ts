@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { CreateUserDto, LoginUserDto, UpdateUserDto } from './dto';
+import { CreateUserDto, UpdateUserDto } from './dto';
 const jwt = require('jsonwebtoken');
 import { SECRET } from '../config';
 import { UserRO } from './user.interface';
@@ -12,30 +12,31 @@ const select = {
   email: true,
   username: true,
   bio: true,
-  image: true
+  image: true,
 };
 
 @Injectable()
 export class UserService {
-  constructor(
-    private prisma: PrismaService
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   async findAll(): Promise<any[]> {
     return await this.prisma.user.findMany({ select });
   }
 
   async create(dto: CreateUserDto): Promise<UserRO> {
-    const {username, email, password} = dto;
+    const { username, email, password } = dto;
 
     // check uniqueness of username/email
     const userNotUnique = await this.prisma.user.findOne({
-      where: {email}
+      where: { email },
     });
 
     if (userNotUnique) {
-      const errors = {username: 'Username and email must be unique.'};
-      throw new HttpException({message: 'Input data validation failed', errors}, HttpStatus.BAD_REQUEST);
+      const errors = { username: 'Username and email must be unique.' };
+      throw new HttpException(
+        { message: 'Input data validation failed', errors },
+        HttpStatus.BAD_REQUEST
+      );
     }
 
     const hashedPassword = await argon2.hash(password);
@@ -47,26 +48,29 @@ export class UserService {
     };
     const user = await this.prisma.user.create({ data, select });
 
-    return {user};
+    return { user };
   }
 
   async update(id: number, data: UpdateUserDto): Promise<any> {
     const where = { id };
     const user = await this.prisma.user.update({ where, data, select });
 
-    return {user};
+    return { user };
   }
 
   async delete(email: string): Promise<any> {
     return await this.prisma.user.delete({ where: { email }, select });
   }
 
-  async findById(id: number): Promise<any>{
-    const user = await this.prisma.user.findOne({ where: { id }, select: {id: true, ...select} });
+  async findById(id: number): Promise<any> {
+    const user = await this.prisma.user.findOne({
+      where: { id },
+      select: { id: true, ...select },
+    });
     return { user };
   }
 
-  async findByEmail(email: string): Promise<any>{
+  async findByEmail(email: string): Promise<any> {
     const user = await this.prisma.user.findOne({ where: { email }, select });
     return { user };
   }
@@ -76,11 +80,14 @@ export class UserService {
     let exp = new Date(today);
     exp.setDate(today.getDate() + 60);
 
-    return jwt.sign({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      exp: exp.getTime() / 1000,
-    }, SECRET);
-  };
+    return jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        exp: exp.getTime() / 1000,
+      },
+      SECRET
+    );
+  }
 }

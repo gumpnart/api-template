@@ -46,6 +46,7 @@ export class UserController {
   }
 
   @Delete('user/:slug')
+  @UseGuards(JwtAuthGuard)
   async delete(@Param() params) {
     console.log(params);
     return await this.userService.delete(params.slug);
